@@ -1,7 +1,27 @@
 services:
 
   # ==========================================
-  # API GATEWAY - PUBLIC
+  # USER SERVICE
+  # ==========================================
+  - type: web
+    name: user-service
+    runtime: docker
+    plan: free
+    region: singapore
+
+    dockerfilePath: ./user-service/Dockerfile
+    dockerContext: ./user-service
+
+    envVars:
+      - key: USER_SERVICE_PORT
+        value: "10000"
+
+      - key: MONGO_URI
+        sync: false
+
+
+  # ==========================================
+  # API GATEWAY
   # ==========================================
   - type: web
     name: api-gateway
@@ -20,90 +40,6 @@ services:
 
       - key: USER_SERVICE_URL
         fromService:
-          type: pserv
+          type: web
           name: user-service
           property: hostport
-
-      - key: PRODUCT_SERVICE_URL
-        fromService:
-          type: pserv
-          name: product-service
-          property: hostport
-
-      - key: ORDER_SERVICE_URL
-        fromService:
-          type: pserv
-          name: order-service
-          property: hostport
-
-
-  # ==========================================
-  # USER SERVICE - PRIVATE
-  # ==========================================
-  - type: pserv
-    name: user-service
-    runtime: docker
-    plan: free
-    region: singapore
-
-    dockerfilePath: ./user-service/Dockerfile
-    dockerContext: ./user-service
-
-    envVars:
-      - key: USER_SERVICE_PORT
-        value: "3001"
-
-      - key: MONGO_URI
-        sync: false
-
-
-  # ==========================================
-  # PRODUCT SERVICE - PRIVATE
-  # ==========================================
-  - type: pserv
-    name: product-service
-    runtime: docker
-    plan: free
-    region: singapore
-
-    dockerfilePath: ./product-service/Dockerfile
-    dockerContext: ./product-service
-
-    envVars:
-      - key: PRODUCT_SERVICE_PORT
-        value: "3002"
-
-      - key: MONGO_URI
-        sync: false
-
-
-  # ==========================================
-  # ORDER SERVICE - PRIVATE
-  # ==========================================
-  - type: pserv
-    name: order-service
-    runtime: docker
-    plan: free
-    region: singapore
-
-    dockerfilePath: ./order-service/Dockerfile
-    dockerContext: ./order-service
-
-    envVars:
-      - key: ORDER_SERVICE_PORT
-        value: "3003"
-
-      - key: USER_SERVICE_URL
-        fromService:
-          type: pserv
-          name: user-service
-          property: hostport
-
-      - key: PRODUCT_SERVICE_URL
-        fromService:
-          type: pserv
-          name: product-service
-          property: hostport
-
-      - key: MONGO_URI
-        sync: false
