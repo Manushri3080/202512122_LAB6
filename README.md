@@ -1,350 +1,178 @@
-# LAB 6 – Docker & Microservices
+# LAB 7 – API Gateway, Service Discovery & Cloud Deployment
 
 ## 1. Objective
 
-The objective of this lab is to design, implement, containerize, and run a simple microservices-based application using Spring Boot, MongoDB, Docker, and Docker Compose.
-
-The application consists of three independent microservices:
-
-- User Service
-- Product Service
-- Order Service
-
-Each service owns its own database and runs in a separate Docker container. The services communicate with each other through REST APIs over a shared Docker network.
+The objective of Lab 7 is to evolve the containerized microservices architecture built in Lab 6 into a production-grade, cloud-deployed system:
+1. **API Gateway**: Build and deploy an API Gateway as the single public entry point for all client requests, hiding internal microservice topology, centralizing cross-cutting concerns (logging, error handling), and isolating backend services inside private networks.
+2. **Service Discovery (Configuration-Based)**: Decouple service locations from routing code using externalized configuration and environment variables, enabling location updates without code changes.
+3. **Cloud Deployment**: Containerize and deploy the entire multi-service system (`api-gateway`, `user-service`, `product-service`, `order-service`, backed by **MongoDB Atlas**) to a public cloud platform (**Render**), making the system accessible over the public internet.
 
 ---
 
-## 2. Project Overview
+## 2. Microservices Architecture & Flow
 
-The CampusConnect application is divided into three microservices:
-
-### User Service
-
-Responsible for managing user resources.
-
-- Port: `3001`
-- Database: `userdb`
-- MongoDB Container: `user-mongodb`
-
-### Product Service
-
-Responsible for managing product resources.
-
-- Port: `3002`
-- Database: `productdb`
-- MongoDB Container: `product-mongodb`
-
-### Order Service
-
-Responsible for managing orders and validating the referenced user and product before creating an order.
-
-- Port: `3003`
-- Database: `orderdb`
-- MongoDB Container: `order-mongodb`
-
----
-
-## 3. Technology Stack
-
-- Java 21
-- Spring Boot
-- Spring Data MongoDB
-- MongoDB
-- Maven
-- Docker
-- Docker Compose
-- REST APIs
-- Postman
-- Docker Bridge Network
-
----
-
-## 4. Microservices Architecture
-
-The application follows a microservices architecture in which each service is independently deployable and has ownership of its own database.
-
-The services communicate through REST APIs using the shared Docker network:
-
+### Full-Stack Request Flow:
 ```text
-                         Postman / Client
-                                |
-              +-----------------+-----------------+
-              |                 |                 |
-              v                 v                 v
-       User Service      Product Service     Order Service
-          :3001              :3002               :3003
-              |                 |                  |
-              v                 v                  v
-         userdb             productdb            orderdb
-              |                 |                  |
-       user-mongodb      product-mongodb      order-mongodb
+Client / Postman
+       │
+       ▼ (Public HTTPS)
+┌────────────────────────────────────────────────────────┐
+│             API Gateway (Port 3000 / 10000)            │
+│  - Single Public Entry Point                           │
+│  - Request Logging & Metrics                           │
+│  - 502/503 Centralized Failure Handling               │
+│  - Service Discovery / Config-Driven Routing           │
+└──────┬──────────────────┬───────────────────┬──────────┘
+       │                  │                   │
+       ▼                  ▼                   ▼
+┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+│ User Service │   │Product Serv. │   │ Order Service│
+│ (Port 3001)  │   │ (Port 3002)  │   │ (Port 3003)  │
+└──────┬───────┘   └──────┬───────┘   └───────┬──────┘
+       │                  │                   │
+       │                  │        Calls GET /users/{id}
+       │                  │◄────── & GET /products/{id}
+       ▼                  ▼                   ▼
+┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+│ MongoDB Atlas│   │ MongoDB Atlas│   │ MongoDB Atlas│
+│   (userdb)   │   │  (productdb) │   │   (orderdb)  │
+└──────────────┘   └──────────────┘   └──────────────┘
+```
 
-                              Order Service
-                              /           \
-                             /             \
-                            v               v
-                     User Service     Product Service
-                    GET /users/{id}  GET /products/{id}
+### Mermaid Architecture Diagram:
+```mermaid
+graph TD
+    Client["Client / Postman"] -->|Public Internet| Gateway["API Gateway (Port 3000 / 10000)"]
+    
+    subgraph Private Network ["Internal Network (Docker / Render Cloud)"]
+        Gateway -->|/users/*| US["User Service (:3001)"]
+        Gateway -->|/products/*| PS["Product Service (:3002)"]
+        Gateway -->|/orders/*| OS["Order Service (:3003)"]
+        
+        OS -.->|Verify User| US
+        OS -.->|Verify Product| PS
+    end
 
-5. Service Ports
+    subgraph Cloud Storage ["MongoDB Atlas Database Cluster"]
+        US --> UserDB[("userdb")]
+        PS --> ProductDB[("productdb")]
+        OS --> OrderDB[("orderdb")]
+    end
+```
 
-| Service         |    Port |
-| --------------- | ------: |
-| User Service    |  `3001` |
-| Product Service |  `3002` |
-| Order Service   |  `3003` |
-| User MongoDB    | `27017` |
-| Product MongoDB | `27018` |
-| Order MongoDB   | `27019` |
+---
 
-6. Service Responsibilities
+## 3. Discussion Questions
 
-| Service         | Responsibility                                                  |
-| --------------- | --------------------------------------------------------------- |
-| User Service    | Create, retrieve, update and delete users                       |
-| Product Service | Create, retrieve, update and delete products                    |
-| Order Service   | Create and retrieve orders and validate User/Product references |
+### Question 1: Why introduce an API Gateway instead of letting clients call each service directly?
+- **Single Entry Point**: Clients interact with a single stable domain/hostname, shielding them from backend microservice fragmentation, port proliferation, and service boundary refactoring.
+- **Hiding Internal Architecture & Security**: Backend microservices (`user-service`, `product-service`, `order-service`) remain completely hidden within a private network with no public ports exposed. Only the gateway faces the internet.
+- **Centralized Cross-Cutting Concerns**: Authentication, SSL/TLS termination, rate limiting, request tracing/logging, and health audits are handled uniformly at the gateway rather than duplicated in each service.
+- **Resilience & Centralized Error Handling**: Unreachable or failing downstream microservices are caught by the gateway and returned as clean, standard `502 Bad Gateway` or `503 Service Unavailable` JSON responses, preventing client connection hangs or timeouts.
 
+### Question 2: Static / Config-Based Discovery vs. Dynamic Service Discovery
+- **Static / Config-Based Approach (This Lab)**:
+  - Service URLs are injected as environment variables (`USER_SERVICE_URL`, `PRODUCT_SERVICE_URL`, `ORDER_SERVICE_URL`).
+  - *Pros*: Simple, deterministic, zero third-party dependencies, perfectly suited for container orchestration and fixed cloud endpoints.
+  - *Cons*: Modifying a service location or scaling horizontally requires updating the configuration and restarting/redeploying the gateway container.
+- **Dynamic Service Discovery (e.g., Netflix Eureka, HashiCorp Consul, Kubernetes DNS)**:
+  - *What Dynamic Registries Add*:
+    - **Self-Registration & Heartbeats**: Instances automatically register their IP/port on boot and send periodic heartbeats. When an instance dies, the registry automatically de-registers it.
+    - **Automatic Client-Side Load Balancing**: The gateway or client queries the registry and distributes traffic across multiple dynamic replicas (round-robin, least-connections) without manual configuration.
+    - **Elastic Autoscaling**: Instances can scale from 1 to 50 dynamically in response to traffic surges, and the gateway immediately routes to all new replicas with zero downtime or config changes.
 
-7. API Endpoints
-User Service
-Method	Endpoint	Description
-GET	/users	Get all users
-GET	/users/{id}	Get a user by ID
-POST	/users	Create a user
-PUT	/users/{id}	Update a user
-DELETE	/users/{id}	Delete a user
-Product Service
-Method	Endpoint	Description
-GET	/products	Get all products
-GET	/products/{id}	Get a product by ID
-POST	/products	Create a product
-PUT	/products/{id}	Update a product
-DELETE	/products/{id}	Delete a product
-Order Service
-Method	Endpoint	Description
-GET	/orders	Get all orders
-GET	/orders/{id}	Get an order by ID
-POST	/orders	Create an order
-8. Inter-Service Communication
+---
 
-The Order Service communicates with the User Service and Product Service before saving an order.
+## 4. API Endpoints & Gateway Routing Table
 
-User Validation
-Order Service
-     |
-     | GET /users/{id}
-     v
-User Service
+| Gateway Path | Routed Service | Target Default Port | Description |
+|---|---|---|---|
+| `GET /health` | API Gateway itself | - | Health check (`{"status":"UP","service":"api-gateway"}`) |
+| `GET /users` | User Service | `3001` | Retrieve all users |
+| `GET /users/{id}` | User Service | `3001` | Retrieve user by ID |
+| `POST /users` | User Service | `3001` | Create a new user |
+| `PUT /users/{id}` | User Service | `3001` | Update user by ID |
+| `DELETE /users/{id}` | User Service | `3001` | Delete user by ID |
+| `GET /products` | Product Service | `3002` | Retrieve all products |
+| `GET /products/{id}` | Product Service | `3002` | Retrieve product by ID |
+| `POST /products` | Product Service | `3002` | Create a new product |
+| `PUT /products/{id}` | Product Service | `3002` | Update product by ID |
+| `DELETE /products/{id}` | Product Service | `3002` | Delete product by ID |
+| `GET /orders` | Order Service | `3003` | Retrieve all orders |
+| `GET /orders/{id}` | Order Service | `3003` | Retrieve order by ID |
+| `POST /orders` | Order Service | `3003` | Create order (validates user & product first) |
 
-The User Service verifies that the referenced user exists.
+---
 
-Product Validation
-Order Service
-     |
-     | GET /products/{id}
-     v
-Product Service
+## 5. Cloud Deployment (Render & MongoDB Atlas)
 
-The Product Service verifies that the referenced product exists.
+The entire microservices system is deployed and operating live in the cloud.
 
-If either dependency is unavailable, the Order Service returns a service-unavailable response.
+### Live Cloud Endpoints:
+- **API Gateway (Public Client Entry Point)**: `https://api-gateway-qtl3.onrender.com`
+- **User Service**: `https://user-service-cj1k.onrender.com`
+- **Product Service**: `https://product-service-mlkw.onrender.com`
+- **Order Service**: `https://order-service-8czg.onrender.com`
+- **Database**: Cloud-hosted MongoDB Atlas Cluster (`campusconnectcluster.a0ey7mr.mongodb.net`) with isolated databases: `userdb`, `productdb`, `orderdb`.
 
-9. Database Ownership
+### Cloud Configuration (Environment Variables):
+- **API Gateway**:
+  - `GATEWAY_PORT`: `10000`
+  - `USER_SERVICE_URL`: `https://user-service-cj1k.onrender.com`
+  - `PRODUCT_SERVICE_URL`: `https://product-service-mlkw.onrender.com`
+  - `ORDER_SERVICE_URL`: `https://order-service-8czg.onrender.com`
+- **User Service**:
+  - `USER_SERVICE_PORT`: `10000`
+  - `MONGO_DATABASE`: `userdb`
+  - `MONGO_URI`: `mongodb+srv://<user>:<password>@campusconnectcluster.a0ey7mr.mongodb.net/?retryWrites=true&w=majority`
+- **Product Service**:
+  - `PRODUCT_SERVICE_PORT`: `10000`
+  - `MONGO_DATABASE`: `productdb`
+  - `MONGO_URI`: `mongodb+srv://<user>:<password>@campusconnectcluster.a0ey7mr.mongodb.net/?retryWrites=true&w=majority`
+- **Order Service**:
+  - `ORDER_SERVICE_PORT`: `10000`
+  - `MONGO_DATABASE`: `orderdb`
+  - `MONGO_URI`: `mongodb+srv://<user>:<password>@campusconnectcluster.a0ey7mr.mongodb.net/?retryWrites=true&w=majority`
+  - `USER_SERVICE_URL`: `https://user-service-cj1k.onrender.com`
+  - `PRODUCT_SERVICE_URL`: `https://product-service-mlkw.onrender.com`
 
-Each microservice has its own MongoDB database.
+---
 
-Service	MongoDB Container	Database
-User Service	user-mongodb	userdb
-Product Service	product-mongodb	productdb
-Order Service	order-mongodb	orderdb
+## 6. Local Execution via Docker Compose
 
-The services do not share application data directly between databases.
+In `docker-compose.yml`, only the `api-gateway` exposes an external port (`3000:3000`). The backend services (`user-service`, `product-service`, `order-service`) expose NO host ports, ensuring network isolation.
 
-10. Docker Network
-
-All application and MongoDB containers are connected to the following Docker network:
-
-campusconnect-network
-
-Docker service names are used for communication between containers instead of localhost.
-
-For example:
-
-Order Service → http://user-service:3001
-Order Service → http://product-service:3002
-11. Environment Variables
-
-The services use environment variables to configure ports, database connections, and inter-service URLs.
-
-User Service
-USER_SERVICE_PORT=3001
-MONGO_URI=mongodb://user-mongodb:27017/userdb
-Product Service
-PRODUCT_SERVICE_PORT=3002
-MONGO_URI=mongodb://product-mongodb:27017/productdb
-Order Service
-ORDER_SERVICE_PORT=3003
-MONGO_URI=mongodb://order-mongodb:27017/orderdb
-USER_SERVICE_URL=http://user-service:3001
-PRODUCT_SERVICE_URL=http://product-service:3002
-12. Docker Images
-
-The following Docker images were created:
-
-campusconnect-user-service:latest
-campusconnect-product-service:latest
-campusconnect-order-service:latest
-
-MongoDB uses the official:
-
-mongo:latest
-13. Docker Compose
-
-Docker Compose is used to start the complete application stack.
-
-The Compose configuration starts:
-
-User MongoDB
-Product MongoDB
-Order MongoDB
-User Service
-Product Service
-Order Service
-
-The services are connected through campusconnect-network.
-
-Start the complete application using:
-
+```bash
+# Start all services with the API Gateway
 docker compose up -d
 
-Check the running containers using:
-
+# Check running containers
 docker compose ps
 
-Stop the application using:
+# Access health check
+curl http://localhost:3000/health
 
-docker compose down
-14. Running the Application
-Build the services
+# Access services through the Gateway
+curl http://localhost:3000/users
+curl http://localhost:3000/products
+curl http://localhost:3000/orders
+```
 
-Each Spring Boot service is packaged as a JAR using Maven.
+---
 
-Example:
+## 7. Troubleshooting Notes
 
-mvn clean package
+1. **Spring Boot 4 MongoDB Property Key**:
+   - In Spring Boot 4.x, the property is `spring.mongodb.uri` (alongside `spring.mongodb.database`), whereas Spring Boot 3 used `spring.data.mongodb.uri`. Both were configured to guarantee seamless connection resolution.
+2. **Render Docker Context Resolution**:
+   - When deploying microservices from a monorepo on Render, setting both Root Directory and Dockerfile Path can lead to duplicated paths (e.g. `product-service/product-service`). Leaving **Root Directory empty**, setting **Dockerfile Path** to `./<service>/Dockerfile`, and specifying **Docker Build Context Directory** as `./<service>` guarantees clean Maven builds.
+3. **Render Free Tier Spin-Down / Cold Starts**:
+   - Inactive instances spin down after 15 minutes of idle time. The initial cold start takes ~40–50 seconds for JVM startup. Once active, inter-service calls respond in sub-second latency.
+4. **Centralized 502/503 Proxy Resiliency**:
+   - The Gateway includes an error hook (`proxyErrorHandler`) in `server.js` that catches downstream socket timeouts and connection drops, returning clean `503 Service Unavailable` JSON instead of hanging client connections.
 
-The generated JAR files are located inside the respective target directories.
+---
 
-Start Docker Compose
+## 8. Reflection
 
-From the LAB6 directory:
-
-docker compose up -d
-Verify containers
-docker compose ps
-
-All six application/database containers should be running.
-
-15. API Testing
-
-The APIs were tested using Postman.
-
-The following operations were tested:
-
-User API requests
-Product API requests
-Order API requests
-Inter-service communication
-Invalid resource requests
-Dependency failure
-Dependency recovery
-16. Error Handling
-404 Not Found
-
-A request for a resource that does not exist returns:
-
-404 Not Found
-
-This was tested for invalid resource IDs.
-
-503 Service Unavailable
-
-When a required dependency of the Order Service is unavailable, order creation fails with:
-
-503 Service Unavailable
-
-This verifies that the Order Service correctly handles dependency failures.
-
-17. Dependency Failure and Recovery
-
-The Order Service depends on both the User Service and Product Service.
-
-The failure scenario was tested by stopping a required dependency and attempting to create an order.
-
-The Order Service returned:
-
-503 Service Unavailable
-
-After restarting the dependency, the Order Service was able to communicate with it again and continue processing requests.
-
-18. Architecture Diagram
-
-The final architecture diagram represents:
-
-Postman / Client
-User Service
-Product Service
-Order Service
-User MongoDB
-Product MongoDB
-Order MongoDB
-Shared Docker network
-Order → User communication
-Order → Product communication
-
-19. Testing Evidence
-
-Screenshots/evidence collected during the lab include:
-
-Docker images
-Docker network
-Docker Compose configuration
-Running Docker containers
-Spring Boot service startup
-Postman API requests
-Successful API responses
-404 error responses
-503 dependency failure
-Successful recovery after restarting a dependency
-Final architecture diagram
-
-20. Troubleshooting
-Docker daemon not running
-
-If Docker commands cannot connect to the Docker API, Docker Desktop must be running.
-
-MongoDB connection failure
-
-Verify that the required MongoDB container is running:
-
-docker ps
-Check all containers
-docker compose ps
-Check service logs
-docker compose logs user-service
-docker compose logs product-service
-docker compose logs order-service
-Restart the complete application
-docker compose down
-docker compose up -d
-
-21. Conclusion
-
-The Lab 6 application demonstrates a Dockerized Spring Boot microservices architecture with independent MongoDB databases.
-
-The three services communicate through REST APIs over a shared Docker network. Dockerfiles are used to containerize the services, while Docker Compose is used to manage the complete application stack.
-
-The implementation also demonstrates inter-service validation, HTTP error handling, dependency failure handling, and recovery.
-
-
+Moving from Lab 6 to Lab 7 fundamentally shifted how the microservices system is operated and consumed. In Lab 6, clients had to track individual service ports (`:3001`, `:3002`, `:3003`) on `localhost`, exposing internal topology and requiring direct access to every service. With the API Gateway introduced in Lab 7, the entire system is accessed through a single unified endpoint with centralized logging and resilient error handling, while backend services are safely isolated behind private networking. Furthermore, deploying to Render and MongoDB Atlas transitioned the application from local development to a globally accessible cloud architecture, proving that externalized configuration allows microservices to move seamlessly between Docker networks and public cloud environments without modifying a single line of business code.
