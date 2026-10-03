@@ -21,6 +21,56 @@ services:
 
       - key: MONGO_URI
         sync: false
+  # ==========================================
+  # PRODUCT SERVICE
+  # ==========================================
+  - type: web
+    name: product-service
+    runtime: docker
+    plan: free
+    region: singapore
+
+    dockerfilePath: ./product-service/Dockerfile
+    dockerContext: ./product-service
+
+    envVars:
+      - key: PRODUCT_SERVICE_PORT
+        value: "10000"
+
+      - key: MONGO_DATABASE
+        value: "productdb"
+
+      - key: MONGO_URI
+        sync: false
+
+
+  # ==========================================
+  # ORDER SERVICE
+  # ==========================================
+  - type: web
+    name: order-service
+    runtime: docker
+    plan: free
+    region: singapore
+
+    dockerfilePath: ./order-service/Dockerfile
+    dockerContext: ./order-service
+
+    envVars:
+      - key: ORDER_SERVICE_PORT
+        value: "10000"
+
+      - key: MONGO_DATABASE
+        value: "orderdb"
+
+      - key: MONGO_URI
+        sync: false
+
+      - key: USER_SERVICE_URL
+        sync: false
+
+      - key: PRODUCT_SERVICE_URL
+        sync: false
 
 
   # ==========================================
