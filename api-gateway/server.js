@@ -6,9 +6,7 @@ const app = express();
 const PORT = process.env.GATEWAY_PORT || 3000;
 
 const USER_SERVICE_URL =
-    process.env.USER_SERVICE_URL
-        ? `http://${process.env.USER_SERVICE_URL}`
-        : "http://localhost:3001";
+    process.env.USER_SERVICE_URL || "http://localhost:3001";
 
 const PRODUCT_SERVICE_URL =
     process.env.PRODUCT_SERVICE_URL || "http://localhost:3002";
