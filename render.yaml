@@ -16,6 +16,9 @@ services:
       - key: USER_SERVICE_PORT
         value: "10000"
 
+      - key: MONGO_DATABASE
+        value: "userdb"
+
       - key: MONGO_URI
         sync: false
 

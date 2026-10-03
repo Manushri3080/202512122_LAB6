@@ -5,14 +5,17 @@ const app = express();
 
 const PORT = process.env.GATEWAY_PORT || 3000;
 
-const USER_SERVICE_URL =
-    process.env.USER_SERVICE_URL || "http://localhost:3001";
+const normalizeUrl = (url, fallback) => {
+    let target = (url || fallback).trim();
+    if (!target.startsWith("http://") && !target.startsWith("https://")) {
+        target = `http://${target}`;
+    }
+    return target;
+};
 
-const PRODUCT_SERVICE_URL =
-    process.env.PRODUCT_SERVICE_URL || "http://localhost:3002";
-
-const ORDER_SERVICE_URL =
-    process.env.ORDER_SERVICE_URL || "http://localhost:3003";
+const USER_SERVICE_URL = normalizeUrl(process.env.USER_SERVICE_URL, "http://localhost:3001");
+const PRODUCT_SERVICE_URL = normalizeUrl(process.env.PRODUCT_SERVICE_URL, "http://localhost:3002");
+const ORDER_SERVICE_URL = normalizeUrl(process.env.ORDER_SERVICE_URL, "http://localhost:3003");
 
 
 // =====================================================
