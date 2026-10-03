@@ -124,7 +124,7 @@ app.use((req, res) => {
 // START SERVER
 // =====================================================
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
     console.log(`API Gateway running on port ${PORT}`);
     console.log(`User Service: ${USER_SERVICE_URL}`);
     console.log(`Product Service: ${PRODUCT_SERVICE_URL}`);
